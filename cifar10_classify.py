@@ -19,9 +19,9 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 
 # options
 dataset = 'cifar10' # options: 'mnist' | 'cifar10'
-batch_size = 512   # input batch size for training
+batch_size = 512 # input batch size for training
 epochs = 20       # number of epochs to train
-lr = 0.01      # learning rate
+lr = 0.2      # learning rate
 
 data_transform = transforms.Compose([
     transforms.ToTensor(),
@@ -32,9 +32,6 @@ testset = datasets.CIFAR10(root='/scratch/vr1059/cifar10', train=True, download=
 
 # train_dist_sampler = torch.utils.data.distributed.DistributedSampler(trainset)
 # test_dist_sampler = torch.utils.data.distributed.DistributedSampler(testset)
-
-train_loader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True)
-test_loader  = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False)
 
 # PyTorch Lightning Module
 
@@ -65,12 +62,17 @@ class ConvNet(pl.LightningModule):
     def validation_step(self, batch, batch_nb):
         x, y = batch
         y_hat = self.forward(x)
-        
-        return {'val_loss': F.cross_entropy(y_hat, y)}
+
+        pred = y_hat.data.max(1, keepdim=True)[1] # get the index of the max log-probability
+        correct = pred.eq(y.data.view_as(pred)).sum()
+
+        return {'val_loss': F.cross_entropy(y_hat, y), 'correct': correct, 'bs': y.shape[0]}
 
     def validation_end(self, outputs):
         avg_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
-        return {'avg_val_loss': avg_loss}
+        val_set_size = torch.tensor([x['bs'] for x in outputs]).sum()
+        avg_accuracy = torch.stack([x['correct'] for x in outputs]).sum().item()/(1. * val_set_size.item())
+        return {'avg_val_loss': avg_loss, 'avg_val_acc': 100*avg_accuracy}
 
     def configure_optimizers(self):
         # REQUIRED
@@ -79,19 +81,44 @@ class ConvNet(pl.LightningModule):
 
     @pl.data_loader
     def tng_dataloader(self):
+        train_dist_sampler = torch.utils.data.distributed.DistributedSampler(trainset)
+        train_loader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=False, sampler=train_dist_sampler)
+        # train_loader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True )
         return train_loader
 
     @pl.data_loader
     def val_dataloader(self):
+        test_dist_sampler = torch.utils.data.distributed.DistributedSampler(testset)
+        test_loader  = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False, sampler=test_dist_sampler)
+        # test_loader  = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False)
         return test_loader
+
+def main_process_entrypoint(gpu_nb):
+    world = 2
+    torch.distributed.init_process_group("nccl", rank=gpu_nb, world_size=world)
+
+    torch.cuda.set_device(gpu_nb)
+
+    model = ConvNet()
+    model.cuda(gpu_nb)
+    model = torch.nn.parallel.distributed.DistributedDataParallel(model, device_ids=[gpu_nb])
+
+    exp = Experiment(save_dir='./logs_cifar10_{}'.format(gpu_nb))
+    trainer = Trainer(experiment=exp, gpus=[gpu_nb], max_nb_epochs=20) 
+    # trainer = Trainer(gpus=[0, 1], max_nb_epochs=20) 
+    # trainer = Trainer(experiment=exp, gpus=[0], max_nb_epochs=20) 
+    trainer.fit(model) 
+
+
 
 if __name__ == '__main__':
 
+    # torch.multiprocessing.spawn(main_process_entrypoint, nprocs=2)
+
     model = ConvNet()
     # most basic trainer, uses good defaults
-    exp = Experiment(save_dir=os.getcwd())
-    trainer = Trainer(experiment=exp, gpus=[0, 1], max_nb_epochs=20, distributed_backend='dp') 
-    # trainer = Trainer(gpus=[0, 1], max_nb_epochs=20) 
+    exp = Experiment(save_dir='./logs_cifar10')
+    trainer = Trainer(experiment=exp, gpus=[0, 1], max_nb_epochs=20, distributed_backend='ddp') 
     # trainer = Trainer(experiment=exp, gpus=[0], max_nb_epochs=20) 
     trainer.fit(model) 
 
