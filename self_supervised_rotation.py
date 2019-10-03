@@ -22,7 +22,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 
 # options
 dataset = 'cifar10' # options: 'mnist' | 'cifar10'
-batch_size = 128 # input batch size for training
+batch_size = 256 # note that ddp training halves the batch -- paper uses 128 batch size 
 epochs = 100       # number of epochs to train
 lr = 0.1      # learning rate
 momentum = 0.9
@@ -146,21 +146,36 @@ class RotNet(pl.LightningModule):
         avg_accuracy = torch.stack([x['correct'] for x in outputs]).sum().item()/(1. * val_set_size.item())
         return {'avg_val_loss': avg_loss, 'avg_val_acc': 100*avg_accuracy}
 
+
     def configure_optimizers(self):
         # REQUIRED
         # can return multiple optimizers and learning_rate schedulers
-        return torch.optim.SGD(self.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay)
+        opt = torch.optim.SGD(self.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay)
+        def adjust_lr(epoch):
+            factor = 0.2
+            if epoch == 30:
+                return factor 
+            if epoch == 60:
+                return factor ** 2
+            if epoch == 80:
+                return factor ** 3
+            return 1
+
+        scheduler = torch.optim.lr_scheduler.LambdaLR(opt, lr_lambda = adjust_lr)
+        return [opt], [scheduler] 
 
     @pl.data_loader
     def tng_dataloader(self):
         train_dist_sampler = torch.utils.data.distributed.DistributedSampler(trainset)
         train_loader = torch.utils.data.DataLoader(trainset, collate_fn=collate, batch_size=batch_size, shuffle=False, sampler=train_dist_sampler)
+        # train_loader = torch.utils.data.DataLoader(trainset, collate_fn=collate, batch_size=batch_size, shuffle=True)
         return train_loader
 
     @pl.data_loader
     def val_dataloader(self):
         test_dist_sampler = torch.utils.data.distributed.DistributedSampler(testset)
         test_loader  = torch.utils.data.DataLoader(testset, collate_fn=collate, batch_size=batch_size, shuffle=False, sampler=test_dist_sampler)
+        # test_loader  = torch.utils.data.DataLoader(testset, collate_fn=collate, batch_size=batch_size, shuffle=False)
         return test_loader
 
 if __name__ == '__main__':
@@ -168,6 +183,15 @@ if __name__ == '__main__':
     model = RotNet()
     # most basic trainer, uses good defaults
     exp = Experiment(save_dir='./logs_rotnet')
+
+    checkpoint_callback = ModelCheckpoint(
+            filepath='./best_rot_model',
+            save_best_only=True,
+            verbose=True,
+            monitor='val_loss',
+            mode='min',
+            prefix=''
+            )
     trainer = Trainer(experiment=exp, gpus=[0, 1], max_nb_epochs=20, distributed_backend='ddp') 
     # trainer = Trainer(gpus=[0, 1], max_nb_epochs=20) 
     # trainer = Trainer(experiment=exp, gpus=[0], max_nb_epochs=20) 

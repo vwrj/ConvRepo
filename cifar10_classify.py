@@ -3,6 +3,7 @@ import argparse
 import os
 import torch
 import torch.nn as nn
+import time
 import torch.nn.functional as F
 import torch.optim as optim
 import torchvision
@@ -41,6 +42,7 @@ class ConvNet(pl.LightningModule):
         super(ConvNet, self).__init__()
         self.conv_1 = nn.Conv2d(3, 16, 5)
         self.pool = nn.MaxPool2d(2)
+        self.relu = nn.ReLU(inplace=True)
         self.conv_2 = nn.Conv2d(16, 128, 5)
         self.linear_1 = nn.Linear(128*5*5, 64)
         self.linear_2 = nn.Linear(64, 10)
@@ -120,6 +122,8 @@ if __name__ == '__main__':
     exp = Experiment(save_dir='./logs_cifar10')
     trainer = Trainer(experiment=exp, gpus=[0, 1], max_nb_epochs=20, distributed_backend='ddp') 
     # trainer = Trainer(experiment=exp, gpus=[0], max_nb_epochs=20) 
+    start = time.time()
     trainer.fit(model) 
+    print("Amount of time elapsed: {}".format(time.time() - start))
 
 
