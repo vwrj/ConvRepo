@@ -120,7 +120,17 @@ if __name__ == '__main__':
     model = ConvNet()
     # most basic trainer, uses good defaults
     exp = Experiment(save_dir='./logs_cifar10')
-    trainer = Trainer(experiment=exp, gpus=[0, 1], max_nb_epochs=20, distributed_backend='ddp') 
+    checkpoint_callback = ModelCheckpoint(
+            filepath='./best_cifar_model',
+            save_best_only=True,
+            verbose=True,
+            monitor='avg_val_loss',
+            mode='min',
+            prefix=''
+            )
+
+    
+    trainer = Trainer(checkpoint_callback=checkpoint_callback, experiment=exp, gpus=[0, 1], max_nb_epochs=20, distributed_backend='ddp') 
     # trainer = Trainer(experiment=exp, gpus=[0], max_nb_epochs=20) 
     start = time.time()
     trainer.fit(model) 

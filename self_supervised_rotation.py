@@ -185,14 +185,14 @@ if __name__ == '__main__':
     exp = Experiment(save_dir='./logs_rotnet')
 
     checkpoint_callback = ModelCheckpoint(
-            filepath='./best_rot_model',
+            filepath='./best_rot_model_100',
             save_best_only=True,
             verbose=True,
-            monitor='val_loss',
+            monitor='avg_val_loss',
             mode='min',
             prefix=''
             )
-    trainer = Trainer(experiment=exp, gpus=[0, 1], max_nb_epochs=20, distributed_backend='ddp') 
+    trainer = Trainer(checkpoint_callback=checkpoint_callback, experiment=exp, gpus=[0, 1], max_nb_epochs=epochs, distributed_backend='ddp') 
     # trainer = Trainer(gpus=[0, 1], max_nb_epochs=20) 
     # trainer = Trainer(experiment=exp, gpus=[0], max_nb_epochs=20) 
     trainer.fit(model) 
