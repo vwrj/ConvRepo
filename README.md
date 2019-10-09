@@ -4,4 +4,4 @@ The results below show validation accuracies on CIFAR-10. Each block of the RotN
   
 | Model                      | ConvB1 | ConvB2 | ConvB3 |
 |----------------------------|--------|--------|--------|
-| RotNet with 3 conv. blocks | 78.34  | 82.92  |  60.2  |
+| RotNet with 3 conv. blocks | 78.34  | 85.06  |  60.2  |
